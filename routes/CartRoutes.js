@@ -1,15 +1,50 @@
 import express from "express";
 import Cart from "../models/CartM.js";
 import Order from "../models/OrderM.js";
-import Product from "../models/ProductsM.js"; // ✅ add this import
+import Product from "../models/ProductsM.js";
 
 const router = express.Router();
 
+/* ---------------- ADD TO CART ---------------- */
 router.post("/", async (req, res) => {
   try {
-    const { userId, items: selectedItems } = req.body;
+    const { userId, productId, size, quantity } = req.body;
 
-    console.log(`[Checkout] Started for User: ${userId}`);
+    if (!userId || !productId) {
+      return res.status(400).json({ message: "User ID and Product ID are required" });
+    }
+
+    let cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      cart = new Cart({
+        userId,
+        items: [{ product: productId, size, quantity }]
+      });
+    } else {
+      const existingItem = cart.items.find(
+        i => i.product.toString() === productId && i.size === size
+      );
+
+      if (existingItem) {
+        existingItem.quantity += quantity;
+      } else {
+        cart.items.push({ product: productId, size, quantity });
+      }
+    }
+
+    await cart.save();
+    const populatedCart = await Cart.findOne({ userId }).populate("items.product");
+    res.json(populatedCart);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ---------------- CHECKOUT ---------------- */
+router.post("/checkout", async (req, res) => {
+  try {
+    const { userId, items: selectedItems } = req.body;
 
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
@@ -22,22 +57,20 @@ router.post("/", async (req, res) => {
 
     let itemsToProcess = [];
     if (selectedItems && selectedItems.length > 0) {
-      itemsToProcess = cart.items.filter(item => {
-        if (!item.product || !item.product._id) return false;
-        return selectedItems.some(selected =>
-          selected.productId === item.product._id.toString() &&
-          selected.size === item.size
-        );
-      });
+      itemsToProcess = cart.items.filter(item =>
+        selectedItems.some(
+          selected =>
+            selected.productId === item.product._id.toString() &&
+            selected.size === item.size
+        )
+      );
     } else {
-      itemsToProcess = cart.items.filter(item => item.product && item.product._id);
+      itemsToProcess = cart.items;
     }
 
     if (itemsToProcess.length === 0) {
       return res.status(400).json({ message: "No valid items to checkout" });
     }
-
-    console.log(`[Checkout] Processing ${itemsToProcess.length} items`);
 
     let totalAmount = 0;
     const orderItems = [];
@@ -61,28 +94,22 @@ router.post("/", async (req, res) => {
         product: product._id,
         size: item.size,
         quantity: item.quantity,
-        price: price
+        price
       });
 
       productsToUpdate.push({ productId: product._id, quantity: item.quantity });
     }
 
     const newOrder = new Order({
-      userId: userId,
+      userId,
       items: orderItems,
       totalAmount: Math.max(0, totalAmount)
     });
 
-    console.log("[Checkout] Saving Order...");
     const savedOrder = await newOrder.save();
-    console.log(`[Checkout] Order Saved: ${savedOrder._id}`);
 
-    // ✅ FIXED: update stock safely
     for (const p of productsToUpdate) {
-      await Product.updateOne(
-        { _id: p.productId },
-        { $inc: { stock: -p.quantity } }
-      );
+      await Product.updateOne({ _id: p.productId }, { $inc: { stock: -p.quantity } });
     }
 
     if (selectedItems && selectedItems.length > 0) {
@@ -90,7 +117,6 @@ router.post("/", async (req, res) => {
         itemsToProcess.map(i => `${i.product._id.toString()}-${i.size}`)
       );
       cart.items = cart.items.filter(item => {
-        if (!item.product) return false;
         const key = `${item.product._id.toString()}-${item.size}`;
         return !processedKeys.has(key);
       });
@@ -99,34 +125,23 @@ router.post("/", async (req, res) => {
     }
 
     await cart.save();
-    console.log("[Checkout] Cart updated");
 
     res.status(200).json({
       message: "Checkout successful",
       orderId: savedOrder._id,
       totalAmount
     });
-
   } catch (error) {
-    console.error(`[Checkout Error] ${error.message}`);
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(500).json({ message: `Validation Error: ${messages.join(', ')}` });
-    }
-    res.status(500).json({
-      message: "Server error during checkout",
-      error: error.message
-    });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// GET cart by userId
+/* ---------------- GET CART ---------------- */
 router.get("/:userId", async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.params.userId }).populate("items.product");
 
     if (!cart) {
-      // ✅ return empty cart instead of error
       return res.json({ userId: req.params.userId, items: [] });
     }
 

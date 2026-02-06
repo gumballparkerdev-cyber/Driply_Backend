@@ -1,7 +1,7 @@
 import express from "express";
 import Cart from "../models/CartM.js";
 import Order from "../models/OrderM.js";
-import Product from "../models/ProductM.js"; // ✅ add this import
+import Product from "../models/ProductsM.js"; // ✅ add this import
 
 const router = express.Router();
 

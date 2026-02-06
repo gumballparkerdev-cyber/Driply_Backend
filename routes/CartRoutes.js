@@ -151,4 +151,47 @@ router.get("/:userId", async (req, res) => {
   }
 });
 
+/* ---------------- UPDATE ITEM ---------------- */
+router.post("/update", async (req, res) => {
+  try {
+    const { userId, productId, size, quantity } = req.body;
+
+    let cart = await Cart.findOne({ userId });
+    if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+    const item = cart.items.find(
+      i => i.product.toString() === productId && i.size === size
+    );
+    if (!item) return res.status(404).json({ message: "Item not found in cart" });
+
+    item.quantity = quantity;
+    await cart.save();
+
+    const populatedCart = await Cart.findOne({ userId }).populate("items.product");
+    res.json(populatedCart);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* ---------------- REMOVE ITEM ---------------- */
+router.post("/remove", async (req, res) => {
+  try {
+    const { userId, productId, size } = req.body;
+
+    let cart = await Cart.findOne({ userId });
+    if (!cart) return res.status(404).json({ message: "Cart not found" });
+
+    cart.items = cart.items.filter(
+      i => !(i.product.toString() === productId && i.size === size)
+    );
+    await cart.save();
+
+    const populatedCart = await Cart.findOne({ userId }).populate("items.product");
+    res.json(populatedCart);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 export default router;

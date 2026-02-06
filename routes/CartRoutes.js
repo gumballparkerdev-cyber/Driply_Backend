@@ -120,4 +120,20 @@ router.post("/", async (req, res) => {
   }
 });
 
+// GET cart by userId
+router.get("/:userId", async (req, res) => {
+  try {
+    const cart = await Cart.findOne({ userId: req.params.userId }).populate("items.product");
+
+    if (!cart) {
+      // ✅ return empty cart instead of error
+      return res.json({ userId: req.params.userId, items: [] });
+    }
+
+    res.json(cart);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 export default router;
